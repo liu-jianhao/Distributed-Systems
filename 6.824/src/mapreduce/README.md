@@ -4,14 +4,14 @@
 ## 代码执行流程
 1. 应用提供一些的输入文件，一个map函数，一个reduce函数，以及reduce任务的数量(nReduce)
 2. Master开启一个RPC服务，然后等待Workers来注册(使用maste.go/Register())。当有Task时，schedule.go/schedule()决定将这些Task指派给workers，以及如何处理Workers的错误
-3. Master将每个输入文件当作Task，然后调用common_map.go/dMap()。这个过程既可以直接进行(串行模式)，也可以通过RPC来让Workers做。每次调用doMap()都会读取相应的文件，运行map函数，将key/value结果写入nReduce个中间文件之中。在map结束后总共会生成nMap * nReduce个文件。命令格式为：前缀-map编号-reduce编号，例如，如果有两个map tasks以及三个reduce tasks，map会生成2 * 3 = 6个中间文件。
+3. Master将每个输入文件当作Task，然后调用common_map.go/dMap()。这个过程既可以直接进行(串行模式)，也可以通过RPC来让Workers做。每次调用doMap()都会读取相应的文件，运行map函数，将key/value结果写入nReduce个中间文件之中。在map结束后总共会生成nMap * nReduce个文件。命令格式为：前缀-map编号-reduce编号(见common.go)，例如，如果有两个map tasks以及三个reduce tasks，map会生成2 * 3 = 6个中间文件。
 ```
- mrtmp.xxx-0-0
- mrtmp.xxx-0-1
- mrtmp.xxx-0-2
- mrtmp.xxx-1-0
- mrtmp.xxx-1-1
- mrtmp.xxx-1-2
+  mrtmp.xxx-0-0
+  mrtmp.xxx-0-1
+  mrtmp.xxx-0-2
+  mrtmp.xxx-1-0
+  mrtmp.xxx-1-1
+  mrtmp.xxx-1-2
 ```
 每个Worker必须能够读取其他Worker写入的文件。真正的分布式系统会使用分布式存储来实现不同机器之间的共享，在这里我们将所有的Workers运行在一台电脑上，并使用本地文件系统
 4. 此后Master会调用common_reduce.go/doReduce()，与doMap()一样，它也能直接完成或者通过工人完成。doReduce()将按照reduce task编号来汇总，生成nRduce个结果文件。例如上面的例子中按照如下分组进行汇总：

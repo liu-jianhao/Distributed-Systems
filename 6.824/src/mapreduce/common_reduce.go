@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"encoding/json"
-	"io"
 	"log"
+	"sort"
 )
 
 // doReduce does the job of a reduce worker: it reads the intermediate
@@ -49,8 +49,53 @@ func doReduce(
 	// key是中间文件里面键值，value是字符串,这个map用于存储相同键值元素的合并
 
 	// Reduce的过程如下：
-	//  S1: 获取到Map产生的文件并打开(reduceName获取文件名)
+	//   S1: 获取到Map产生的文件并打开(reduceName获取文件名)
 	// 　S2：获取中间文件的数据(对多个map产生的文件更加值合并)
 	// 　S3：打开文件（mergeName获取文件名），将用于存储Reduce任务的结果
 	// 　S4：合并结果之后(S2)，进行reduceF操作, work count的操作将结果累加，也就是word出现在这个文件中出现的次数
+
+	// 查看参数
+	fmt.Printf("Reduce: job name = %s, reduce task id = %d, nMap = %d\n", jobName, reduceTaskNumber, nMap);
+
+	// 建立哈希表，以slice形式存储同一key的所有value
+	kv_map := make(map[string]([]string))
+
+	// 读取同一个reduce task 下的所有文件，保存至哈希表
+	for mapTaskNumber := 0; mapTaskNumber < nMap; mapTaskNumber++ {
+		filename := reduceName(jobName, mapTaskNumber, reduceTaskNumber)
+		f, err := os.Open(filename)
+		if err != nil {
+			log.Fatal("Unable to read from: ", filename)
+		}
+		defer f.Close()
+
+		decoder := json.NewDecoder(f)
+		var kv KeyValue
+		for ; decoder.More(); {
+			err := decoder.Decode(&kv)
+			if err != nil {
+				log.Fatal("json decode failed, ", err)
+			}
+			kv_map[kv.Key] = append(kv_map[kv.Key], kv.Value)
+		}
+	}
+	
+	// 对哈希表所有key进行升序排序
+	keys := make([]string, 0, len(kv_map))
+	for k, _ := range kv_map {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// 利用自定义的reduceF函数处理同一key下所有val
+	// 按照key的顺序将结果以{{key, new_val}}形式输出
+	outf, err := os.Create(mergeName(jobName, reduceTaskNumber))
+	if err != nil {
+		log.Fatal("Unable to create file: ", mergeName(jobName, reduceTaskNumber))
+	}
+	defer outf.Close()
+	encoder := json.NewEncoder(outf)
+	for _,k := range keys {
+		encoder.Encode(KeyValue{k, reduceF(k, kv_map[k])})
+	}
 }

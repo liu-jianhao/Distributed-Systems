@@ -1,6 +1,7 @@
 package mapreduce
 
 import (
+	"log"
 	"hash/fnv"
 	"io/ioutil"
 	"os"
@@ -71,6 +72,41 @@ func doMap(
 	//  S3： 将mapF返回的数据根据key分类,跟文件名对应(reduceName获取文件名)
 	// 　S4: 　将分类好的数据分别写入不同文件
 
+	// 打印参数
+	fmt.Printf("jobName = %s, inFile = %s, mapTaskNumber = %d, nReduce = %d\n", jobName, inFile, mapTaskNumber, nReduce);
+
+	// 读取文件
+	bytes, err := ioutil.ReadFile(inFile);
+	if err != nil {
+		log.Fatal("Unable to read file: ", inFile);
+	}
+
+	// 解析输入文件为键值对数组
+	kv_pairs := mapF(inFile, string(bytes))
+
+	// 生成一组encoder用来对应文件
+	encoders := make([]*json.Encoder, nReduce)
+	for reduceTaskNumber := 0; reduceTaskNumber < nReduce; reduceTaskNumber++ {
+		// reduceName(在comman.go)返回一个特定的文件名
+		filename := reduceName(jobName, mapTaskNumber, reduceTaskNumber)
+		file_ptr, err := os.Create(filename)
+		if err != nil {
+			log.Fatal("Unable to create file: ", filename)
+		}
+
+		defer file_ptr.Close()
+		encoders[reduceTaskNumber] = json.NewEncoder(file_ptr)
+	}
+
+	// 利用encoder将键值对写入对应文件
+	for _, key_val := range kv_pairs {
+		key := key_val.Key
+		reduce_idx := ihash(key) % uint32(nReduce)
+		err := encoders[reduce_idx].Encode(key_val)
+		if err != nil {
+			log.Fatal("Unable to write to file")
+		}
+	}
 }
 
 func ihash(s string) uint32 {
