@@ -125,7 +125,7 @@ mapreduce的实现如下所述：
 
 脚本会告知你的解决方案是否正确。
 
-如果你的Map/Reduce单词计数器输出的结果和上面的一致的话，你可以得到全部的学分。如果想知道Go语言中的string是什么的话，可以阅读Go博客。你可以使用strings.FieldsFunc分离字符串。strconv包可以提供字符串到整xing型的转换等功能。
+如果你的Map/Reduce单词计数器输出的结果和上面的一致的话，你可以得到全部的学分。如果想知道Go语言中的string是什么的话，可以阅读Go博客。你可以使用strings.FieldsFunc分离字符串。strconv包可以提供字符串到整型的转换等功能。
 
 ### 第三部分： 分布式MapReduce任务
 Map/Reduce一个大的卖点是开发者不需要在多台机器上面并行运行它们的代码。在理论上，我们可以运在本地运行word count,然后可以自动并行化。
