@@ -210,3 +210,60 @@ master: Map/Reduce task completed
 PASS
 ok  	_/root/Distributed-Systems/6.824/src/mapreduce	3.831s
 ```
+### Part II: Single-worker word count
+既然map和reduce任务已经被连接，那么我们开始实现一些Map/Reduce操作。在这个实验中我们会实现单词计数器——一个简单经典的Map/Reduce例子。特别地,你们的任务是改写mapF和reduceF函数，这样wc.go就可以报告每个单词的数量了。一个单词是任何相邻的字母序列，正如unicode.IsLetter定义的那样。
+
+这里有一些以pg-开头的输入文件位于~/6.824/src/main路径下面。尝试编译我们通过给你的软件，然后就使用我们提供的输入文件运行看看：
+```	
+    $ cd 6.824
+    $ export "GOPATH=$PWD"
+	$ cd "$GOPATH/src/main"
+	$ go run wc.go master sequential pg-*.txt
+	# command-line-arguments
+	./wc.go:14: missing return at end of function
+	./wc.go:21: missing return at end of function
+```	
+编译失败的原因是我们还没有编写完整的map函数(mapF)和reduce函数(reduceF)。在你开始阅读MapReduce论文的第二部分时，这里需要说明你的mapF函数和reduceF函数跟论文中有些区别。你的mapF函数会传递文件名和文件的内容；它将会分隔成单词，然后返回含有键值对的切片类型([]KeyValue),你的reduceF函数对于每个键都会调用一次，参数是mapF生成的切片数据，它只有一个返回值。
+
+你可以通过下面的命令运行你的解决方案：
+
+```	
+	$ cd "$GOPATH/src/main"
+	$ go run wc.go master sequential pg-*.txt
+	master: Starting Map/Reduce task wcseq
+	Merge: read mrtmp.wcseq-res-0
+	Merge: read mrtmp.wcseq-res-1
+	Merge: read mrtmp.wcseq-res-2
+	master: Map/Reduce task completed
+	14.59user 3.78system 0:14.81elapsed
+```	
+
+生产的结果会在文件mrtmp.wcseq中，通过下面的命令删除全部的中间数据：
+
+```	
+	$ rm mrtmp.*
+```	
+
+如果执行下面的命令出现如下内容，那么你的实现是正确的：
+
+```	
+	$ sort -n -k2 mrtmp.wcseq | tail -10
+	he: 34077
+	was: 37044
+	that: 37495
+	I: 44502
+	in: 46092
+	a: 60558
+	to: 74357
+	of: 79727
+	and: 93990
+	the: 154024
+```	
+
+为了让测试更加简单，你可以运行下面的脚本：
+
+```	
+	$ sh ./test-wc.sh
+```	
+
+脚本会告知你的解决方案是否正确。
