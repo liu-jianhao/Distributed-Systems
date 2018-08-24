@@ -22,7 +22,8 @@ func (mr *Master) schedule(phase jobPhase) {
 	// Remember that workers may fail, and that any given worker may finish
 	// multiple tasks.
 	//
-	// TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
-	//
+	// TODO
+	// 所有ntasks个任务都必须被workers调度，并且它们都成功完成如果函数返回，
+	// 记住，workers可能会失败，并且有些worker可能会完成多个任务
 	fmt.Printf("Schedule: %v phase done\n", phase)
 }
