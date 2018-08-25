@@ -210,7 +210,7 @@ master: Map/Reduce task completed
 PASS
 ok  	_/root/Distributed-Systems/6.824/src/mapreduce	3.831s
 ```
-### Part II: Single-worker word count
+## Part II: Single-worker word count
 既然map和reduce任务已经被连接，那么我们开始实现一些Map/Reduce操作。在这个实验中我们会实现单词计数器——一个简单经典的Map/Reduce例子。特别地,你们的任务是改写mapF和reduceF函数，这样wc.go就可以报告每个单词的数量了。一个单词是任何相邻的字母序列，正如unicode.IsLetter定义的那样。
 
 这里有一些以pg-开头的输入文件位于~/6.824/src/main路径下面。尝试编译我们通过给你的软件，然后就使用我们提供的输入文件运行看看：
@@ -267,3 +267,15 @@ ok  	_/root/Distributed-Systems/6.824/src/mapreduce	3.831s
 ```	
 
 脚本会告知你的解决方案是否正确。
+## Part III: Distributing MapReduce tasks
+在开始这部分实验之前要先阅读master.go的代码
+目前为止我们都是串行地执行任务，Map/Reduce 最大的优势就是能够自动地并行执行普通的代码，不用开发者进行额外工作。在 Part III 我们会把任务分配给一组 worker thread，在多核上并行进行。虽然我们不在多机上进行，但是会用 RPC 来模拟分布式计算。
+
+我们需要实现 `mapreduce/schedule.go` 的 `schedule()`，在一次任务中，Master 会调用两次 `schedule()`，一次用于 Map，一次用于 Reduce。`schedule()`将会把任务分配给 Workers，通常任务会比 Workers 数量多，因此 `schedule()` 会给每个 worker 一个 Task 序列，然后等待所有 Task 完成再返回。
+
+`schedule()` 通过 `registerChan` 参数获取 Workers 信息，它会生成一个包含 Worker 的 RPC 地址的 string，有些 Worker 在调用 `schedule()` 之前就存在了，有的在调用的时候产生，他们都会出现在 `registerChan` 中。
+
+`schedule()` 通过发送 `Worker.DoTask` RPC 调度 Worker 执行任务，可以用 `mapreduce/common_rpc.go` 中的 `call()` 函数发送。`call()` 的第一个参数是 Worker 的地址，可以从 `registerChan` 获取，第二个参数是 `"Worker.DoTask"` 字符串，第三个参数是 `DoTaskArgs` 结构体的指针，最后一个参数为 `nil`。
+
+这是一个比较有含金量的练习。
+`schedule()` 函数的调用发生在 `master.go` 中。首先，在`Distributed()` 中对 `schedule()` 做了一个再封装，使得其只需要一个参数判断是 Map 还是 Reduce。

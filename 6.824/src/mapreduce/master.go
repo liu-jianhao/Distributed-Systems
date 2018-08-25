@@ -9,13 +9,16 @@ import (
 // Master holds all the state that the master needs to keep track of. Of
 // particular importance is registerChannel, the channel that notifies the
 // master of workers that have gone idle and are in need of new work.
+// Master类拥有所有master需要追踪的成员。
+// 其中特别重要的成员是registerChannel，这个通道用于通知master有
+// 哪些空闲并且需要新任务的通道
 type Master struct {
 	sync.Mutex
 
 	address         string
-	registerChannel chan string	// 通知master那些worker处于空闲状态。
+	registerChannel chan string // 通知master那些worker处于空闲状态。
 	doneChannel     chan bool
-	workers         []string        // protected by the mutex, master下面含有的worker的名字
+	workers         []string // protected by the mutex, master下面含有的worker的名字
 
 	// Per-task information
 	jobName string   // Name of currently executing job
@@ -113,18 +116,18 @@ func (mr *Master) run(jobName string, files []string, nreduce int,
 	schedule func(phase jobPhase),
 	finish func(),
 ) {
-	mr.jobName = jobName  	// job的名字
-	mr.files = files	// 输入的文件
-	mr.nReduce = nreduce    // reduce任务的数量限制
+	mr.jobName = jobName // job的名字
+	mr.files = files     // 输入的文件
+	mr.nReduce = nreduce // reduce任务的数量限制
 
 	fmt.Printf("%s: Starting Map/Reduce task %s\n", mr.address, mr.jobName)
 
 	// 这两个函数都需要外面传入
-	schedule(mapPhase)	// 安排map任务  schedule即master.go 64行传入的函数
-	schedule(reducePhase)	// 安排reduce任务
-	finish()		// 任务完成
+	schedule(mapPhase)    // 安排map任务  schedule即master.go 64行传入的函数
+	schedule(reducePhase) // 安排reduce任务
+	finish()              // 任务完成
 
-	mr.merge()              // 合并结果
+	mr.merge() // 合并结果
 
 	fmt.Printf("%s: Map/Reduce task completed\n", mr.address)
 
@@ -135,7 +138,7 @@ func (mr *Master) run(jobName string, files []string, nreduce int,
 // This happens when all tasks have scheduled and completed, the final output
 // have been computed, and all workers have been shut down.
 func (mr *Master) Wait() {
-	<-mr.doneChannel  // 等待run运行完成
+	<-mr.doneChannel // 等待run运行完成
 }
 
 // killWorkers cleans up all workers by sending each one a Shutdown RPC.
