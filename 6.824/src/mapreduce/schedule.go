@@ -2,6 +2,7 @@ package mapreduce
 
 import (
 	"fmt"
+	"log"
 	"sync"
 )
 
@@ -38,27 +39,31 @@ func (mr *Master) schedule(phase jobPhase) {
 
 	var wg sync.WaitGroup
 	for i := 0; i < ntasks; i++ {
-		wg.Add(1)
-		go func(taskNum int, nios int, phase jobPhase) {
-			fmt.Printf("current taskNum: %v, nios: %v, phase: %v\n", taskNum, nios, phase)
-			for {
-				worker := <-mr.registerChannel
-				fmt.Printf("current worker port: %v\n", worker)
+		wg.Add(1) //增加wg的计数
 
-				var args DoTaskArgs
-				args.JobName = mr.jobName
-				args.File = mr.files[taskNum]
-				args.Phase = phase
-				args.TaskNumber = taskNum
-				args.NumOtherPhase = nios
-				ok := call(worker, "Worker.DTask", &args, new(struct{}))
-				if ok {
-					wg.Done()
-					mr.registerChannel <- worker
-					break
-				}
+		fmt.Printf("current taskNum: %v, nios: %v, phase: %v\n", i, nios, phase)
+		// DoTaskArgs用来保存参数，用于worker分配工作
+		var args DoTaskArgs
+		args.JobName = mr.jobName
+		args.Phase = phase
+		args.TaskNumber = i
+		args.NumOtherPhase = nios
+		if phase == mapPhase {
+			args.File = mr.files[i]
+		}
+		// 并发处理，速度更快
+		go func() {
+			defer wg.Done()
+			worker := <-mr.registerChannel
+			fmt.Printf("current worker port: %v\n", worker)
+
+			// call：本地的rpc调用，使用是unix套接字
+			ok := call(worker, "Worker.DoTask", &args, nil)
+			if !ok {
+				log.Fatal("RPC call error, exit")
 			}
-		}(i, nios, phase)
+			go func() { mr.registerChannel <- worker }()
+		}()
 	}
 	wg.Wait()
 	fmt.Printf("Schedule: %v phase done\n", phase)

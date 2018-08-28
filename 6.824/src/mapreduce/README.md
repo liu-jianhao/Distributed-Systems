@@ -279,3 +279,8 @@ ok  	_/root/Distributed-Systems/6.824/src/mapreduce	3.831s
 
 这是一个比较有含金量的练习。
 `schedule()` 函数的调用发生在 `master.go` 中。首先，在`Distributed()` 中对 `schedule()` 做了一个再封装，使得其只需要一个参数判断是 Map 还是 Reduce。
+
+## Part IV: Handling worker failures
+在该部分中我们需要让 Master 能够处理 failed Worker。MapReduce 使这个处理相对简单，因为如果一个 Worker fails，Master 交给它的任何任务都会失败。此时 Master 需要把任务交给另一个 Worker。
+
+一个 RPC 出错并不一定表示 Worker 没有执行任务，有可能只是 reply 丢失了，或是 Master 的 RPC 超时了。因此，有可能两个 Worker 都完成了同一个任务。同样的任务会生成同样的结果，所以这样并不会引发什么问题。并且，在该 lab 中，每个 Task 都是序列执行的，这就保证了结果的整体性。
