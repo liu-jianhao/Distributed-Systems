@@ -2,7 +2,6 @@ package mapreduce
 
 import (
 	"fmt"
-	"log"
 	"sync"
 )
 
@@ -54,15 +53,18 @@ func (mr *Master) schedule(phase jobPhase) {
 		// 并发处理，速度更快
 		go func() {
 			defer wg.Done()
-			worker := <-mr.registerChannel
-			fmt.Printf("current worker port: %v\n", worker)
+			// 在part3的基础上加一个无限循环，只要出错就换一个worker
+			for {
+				worker := <-mr.registerChannel
+				fmt.Printf("current worker port: %v\n", worker)
 
-			// call：本地的rpc调用，使用是unix套接字
-			ok := call(worker, "Worker.DoTask", &args, nil)
-			if !ok {
-				log.Fatal("RPC call error, exit")
+				// call：本地的rpc调用，使用是unix套接字
+				ok := call(worker, "Worker.DoTask", &args, nil)
+				if ok {
+					go func() { mr.registerChannel <- worker }()
+					break
+				}
 			}
-			go func() { mr.registerChannel <- worker }()
 		}()
 	}
 	wg.Wait()
