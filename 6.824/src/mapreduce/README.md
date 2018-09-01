@@ -280,7 +280,40 @@ ok  	_/root/Distributed-Systems/6.824/src/mapreduce	3.831s
 这是一个比较有含金量的练习。
 `schedule()` 函数的调用发生在 `master.go` 中。首先，在`Distributed()` 中对 `schedule()` 做了一个再封装，使得其只需要一个参数判断是 Map 还是 Reduce。
 
+运行脚本测试是否正确：
+```
+./part3.sh
+```
+
 ## Part IV: Handling worker failures
 在该部分中我们需要让 Master 能够处理 failed Worker。MapReduce 使这个处理相对简单，因为如果一个 Worker fails，Master 交给它的任何任务都会失败。此时 Master 需要把任务交给另一个 Worker。
 
 一个 RPC 出错并不一定表示 Worker 没有执行任务，有可能只是 reply 丢失了，或是 Master 的 RPC 超时了。因此，有可能两个 Worker 都完成了同一个任务。同样的任务会生成同样的结果，所以这样并不会引发什么问题。并且，在该 lab 中，每个 Task 都是序列执行的，这就保证了结果的整体性。
+
+运行脚本测试是否正确：
+```
+./part4.sh
+```
+## Part V: Inverted index generation (optional)
+Word count是一个典型的Map/Reduce应用，但是它不是一个大规模消费者使用Map/Reduce的例子。它非常简单，现实中很少需要你从一个大的数据集里面统计单词的数量。在这个具有挑战性的练习中，我们代替你已经建立用于生成反向索引的Map和Reduce函数。
+
+反向索引在计算机科学领域被广泛使用，尤其在文档搜索方面。广义地说，一个反向索引就是map,存在底层数据的一些有趣的事实，说明数据的原始位置。例如，在文本搜索的时候，反向索引也许是这样的map,它包含了两个单词从关键字指向文档.
+
+我们将会建立第二个可执行程序在main/ii.go，跟你之前的在part2建立的wc.go非常类似。你应该修改main/ii.go文件中的mapF和reduceF函数，那么它们就可与共同产生反向索引。运行ii.go将会输出一些元组，每一行都类似下面这种格式：
+```
+<单词>: <文件个数> <排序后的文件名列表>
+```
+相比 PartII 中的词频统计，思想是类似的。 首先在`mapF`里对文件的内容分词，维护一个哈希表，Key 是单词，Value 是文件名。这样可以去掉重复的词。最后再把哈希表转为输出要求的格式。
+
+`mapF`返回的数组会经过哈希处理分配到 nReduce 个文件中。`doReduce`则会将隶属于同样的`reduce_task_id`的文件的 {key, val} 整合为 {key, []val}。在本例中就相当于 {单词，[]文件名}。 在`reduceF`里主要是对每个 key 下的所有 value 进行处理。注意，它并不负责输出，只负责返回一个 newVal，最后由`doReduce`统一以 {key, newVal} 形式输出。因此我们只需要把 []文件名 进行排序后，按要求格式转为一个 string 即可。
+
+运行脚本测试是否正确：
+```
+./test-ii.sh
+```
+
+## 最终测试
+测试实验一的五个部分：
+```
+./test-mr.sh
+```
