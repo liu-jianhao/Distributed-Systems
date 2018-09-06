@@ -281,10 +281,3 @@
 
   
 ----
-
-VMware KB（＃1013428）讨论了多CPU支持。VM-FT可能已经切换
-从复制的状态机方法到状态转移方法，但是
-不清楚这是否属实。
-
-http://www.wooditwork.com/2014/08/26/whats-new-vsphere-6-0-fault-tolerance/
-http://www.tomsitpro.com/articles/vmware-vsphere-6-fault-tolerance-multi-cpu,1-2439.html
