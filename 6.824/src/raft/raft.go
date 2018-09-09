@@ -56,22 +56,27 @@ type Raft struct {
 	 *  currentTerm 	服务器看到的最近Term(第一次启动的时候为0,后面单调递增)
 	 *  votedFor     	当前Term收到的投票候选 (如果没有就为null)
 	 *  log[]        	日志项; 每个日志项包含机器状态和被leader接收的Term(first index is 1)
-         */
-	//  删除代码部分
+	*/
+	currentTerm int
+	votedFor	int
+	log 		bytes[]
+
 	/*
 	 * 全部服务器上面的不稳定状态:
 	 *	commitIndex 	已经被提交的最新的日志索引(第一次为0,后面单调递增)
 	 *	lastApplied      已经应用到服务器状态的最新的日志索引(第一次为0,后面单调递增)
 	*/
-	//  删除代码部分
+	commitIndex int
+	lastApplied int	
 
 	/*
 	 * leader上面使用的不稳定状态（完成选举之后需要重新初始化）
 	 *	nextIndex[]	
-	 *
+	 *  matchIndex[]
 	 *
 	*/
-
+	nextIndex 	int
+	matchIndex	int
 }
 
 // return currentTerm and whether this server
