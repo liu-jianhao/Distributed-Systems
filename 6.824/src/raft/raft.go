@@ -17,12 +17,20 @@ package raft
 //   in the same server.
 //
 
-import "sync"
-import "labrpc"
+import (
+	"time"
+	"sync"
+	"labrpc"
+)
 
 // import "bytes"
 // import "encoding/gob"
 
+const (
+	STATE_LEADER = 0
+	STATE_CANDIDATE = 1
+	STATE_FLLOWER = 2
+)
 
 
 //
@@ -51,6 +59,10 @@ type Raft struct {
 	// state a Raft server must maintain.
 	// 查看论文的图2部分，可知
 
+	termTimer		time.Timer 	// 任期计时器
+	state 			int			// 当前状态
+	voteAcquired 	int 		// 获得的选票
+
 	/*
 	 * 全部服务器上面的可持久化状态:
 	 *  currentTerm 	服务器看到的最近Term(第一次启动的时候为0,后面单调递增)
@@ -59,15 +71,15 @@ type Raft struct {
 	*/
 	currentTerm int
 	votedFor	int
-	log 		bytes[]
+	// log 		bytes[]
 
 	/*
 	 * 全部服务器上面的不稳定状态:
 	 *	commitIndex 	已经被提交的最新的日志索引(第一次为0,后面单调递增)
 	 *	lastApplied     已经应用到服务器状态的最新的日志索引(第一次为0,后面单调递增)
 	*/
-	commitIndex int
-	lastApplied int	
+	// commitIndex int
+	// lastApplied int	
 
 	/*
 	 * leader上面使用的不稳定状态（完成选举之后需要重新初始化）
@@ -75,8 +87,8 @@ type Raft struct {
 	 *  matchIndex[]	对于每一个服务器，已经复制给他的日志的最高索引值
 	 *
 	*/
-	nextIndex 	int
-	matchIndex	int
+	// nextIndex 	int
+	// matchIndex	int
 }
 
 // return currentTerm and whether this server
@@ -137,13 +149,29 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here.
-	term int  			// 当前任期号，一遍候选人去更新自己的任期号
+	term int  			// 当前任期号，以便候选人去更新自己的任期号
 	voteGranted bool 	// 候选人赢得了此选票时为真
 }
+
+type AppendEntiesArgs struct {
+	term int 			// 候选人的任期号
+	leaderId	int		// 请求选票的候选人的Id
+	preLogIndex int		// 候选人的最后日志条目的索引值
+	preLogTerm 	int		// 候选人最后日志条目的任期号 	
+	entries 	bytes[] // 准备存储的日志条目（表示心跳时为空）
+	leaderCommit 		// 领导人已经提交的日志的索引值
+}
+
+type AppendEntiesReply struct {
+	term int  			// 当前任期号，用于领导人去更新自己的任期号
+	success bool 		// 跟随者包含了匹配prevLogIndex和preLogTerm的日志时为真
+}
+
 
 //
 // example RequestVote RPC handler.
 //
+// 收到投票请求时的处理函数
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
 	if args.term < rf.currentTerm {
@@ -151,8 +179,41 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 		reply.voteGranted = false
 	} else if args.term > rf.currentTerm {
 		rf.currentTerm = args.term
-		rf.
+		rf.state = STATE_CANDIDATE
+		rf.votedFor = args.candidateId
+		reply.term = rf.currentTerm
+		reply.voteGranted = true
+	} else {
+		if rf.votedFor == -1 {
+			rf.votedFor = args.candidateId
+			reply.voteGranted = true
+		} else {
+			reply.voteGranted = flase
+		}
 	}
+
+	if reply.voteGranted == true {
+		go func() {
+			rf.vote
+		}
+	}
+
+}
+
+
+func (rf *Raft) AppendEntiesArgs(args *AppendEntiesArgs, reply *AppendEntiesReply) {
+	if args.term < rf.currentTerm {
+		reply.success = false
+		reply.term = rf.currentTerm
+	} else if args.term > rf.currentTerm {
+		rf.currentTerm = args.term
+		rf.state = STATE_FLLOWER
+		reply.success = true
+	} else {
+		reply.success = true
+	}
+	
+	
 }
 
 //
@@ -177,6 +238,10 @@ func (rf *Raft) sendRequestVote(server int, args RequestVoteArgs, reply *Request
 	return ok
 }
 
+func (rf *Raft) sendAppendEntries(server int, args RequestVoteArgs, reply *RequestVoteReply) bool {
+	ok := rf.peers[server].Call("Raft.AppenEntries", args, reply)
+	return ok
+}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -238,4 +303,86 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 
 	return rf
+}
+
+// 论文重点：
+// 要开始一次选举过程，跟随者先要增加自己的当前任期号并且转换到候选人状态。
+// 然后他会并行的向集群中的其他服务器节点发送请求投票的 RPCs 来给自己投票。
+// 候选人会继续保持着当前状态直到以下三件事情之一发生：
+// (a) 他自己赢得了这次的选举，
+// (b) 其他的服务器成为领导者，
+// (c) 一段时间之后没有任何一个获胜的人。
+
+// 获得一个随机的任期时间周期
+func randTermDuration() {
+	r := rand.New(rand.NewSourse(time.Now().UnixNano()))
+	return time.Millisecond * time.Duration(r.Int63n(500) + 400)
+}
+
+// 开始选举
+func (rf *Raft) startElection() {
+	rf.currentTerm += 1
+	rf.votedFor = rf.me 	// 自己投给自己一票
+	rf.voteAcquired = 1		// 自己获得一张选票
+	rf.termTimer.Reset(randTermDuration())
+	rf.broadcastRequestVote()
+}
+
+// 下面这个函数实现的是候选人并行的向其他服务器节点发送请求投票的RPC（sendRequestVote）
+func (rf *Raft) broadcastRequestVote() {
+	args := RequestVoteArgs{
+		Term: rf.currentTerm,
+		candidateId: rf.me
+	}
+
+	for i, _ := range rf.peers {
+		if i == rf.me {
+			continue
+		}
+
+		go func(server int) {
+			var reply RequestVoteReply
+			// 如果是候选人就发送投票请求
+			if rf.state == STATE_CANDIDATE && rf.sendRequestVote(server, &args, &reply) {
+				
+				if reply.voteGranted == true {
+					rf.voteAcquired += 1
+				} else {
+					if reply.term > rf.currentTerm {
+						rf.currentTerm = reply.Term
+						rf.state = STATE_FLLOWER
+					}
+				}
+			}
+		}(i)
+	}
+}
+
+// 下面这个函数实现的是领导者并行的向其他服务器节点发送请求日志（包括心跳）的RPC（sendAppendEntries）
+func (rf *Raft) broadcastRequestVote() {
+	args := AppendEntiesArgs{
+		Term: rf.currentTerm,
+		leaderId: rf.me
+	}
+
+	for i, _ := range rf.peers {
+		if i == rf.me {
+			continue
+		}
+
+		go func(server int) {
+			var reply AppendEntiesReply
+			// 如果是候选人就发送投票请求
+			if rf.state == STATE_LEADER && rf.sendAppendEntries(server, &args, &reply) {
+				if reply.success == true {
+
+				} else {
+					if reply.term > rf.currentTerm {
+						rf.currentTerm = reply.Term
+						rf.state = STATE_FLLOWER
+					}
+				}
+			}
+		}(i)
+	}
 }
