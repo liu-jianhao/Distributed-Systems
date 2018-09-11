@@ -64,15 +64,15 @@ type Raft struct {
 	/*
 	 * 全部服务器上面的不稳定状态:
 	 *	commitIndex 	已经被提交的最新的日志索引(第一次为0,后面单调递增)
-	 *	lastApplied      已经应用到服务器状态的最新的日志索引(第一次为0,后面单调递增)
+	 *	lastApplied     已经应用到服务器状态的最新的日志索引(第一次为0,后面单调递增)
 	*/
 	commitIndex int
 	lastApplied int	
 
 	/*
 	 * leader上面使用的不稳定状态（完成选举之后需要重新初始化）
-	 *	nextIndex[]	
-	 *  matchIndex[]
+	 *	nextIndex[]		对于每一个服务器，需要发送给他的下一个日志条目的索引值	
+	 *  matchIndex[]	对于每一个服务器，已经复制给他的日志的最高索引值
 	 *
 	*/
 	nextIndex 	int
@@ -85,6 +85,8 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here.
+	term = currentTerm
+
 	return term, isleader
 }
 
@@ -124,6 +126,10 @@ func (rf *Raft) readPersist(data []byte) {
 //
 type RequestVoteArgs struct {
 	// Your data here.
+	term int 			// 候选人的任期号
+	candidateId	int		// 请求选票的候选人的Id
+	lastLogIndex int	// 候选人的最后日志条目的索引值
+	lastLogTerm int		// 候选人最后日志条目的任期号 	
 }
 
 //
@@ -131,6 +137,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here.
+	term int  			// 当前任期号，一遍候选人去更新自己的任期号
+	voteGranted bool 	// 候选人赢得了此选票时为真
 }
 
 //
@@ -138,6 +146,13 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
+	if args.term < rf.currentTerm {
+		reply.term = rf.currentTerm
+		reply.voteGranted = false
+	} else if args.term > rf.currentTerm {
+		rf.currentTerm = args.term
+		rf.
+	}
 }
 
 //
