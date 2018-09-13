@@ -18,20 +18,20 @@ package raft
 //
 
 import (
-	"time"
-	"sync"
 	"labrpc"
+	"math/rand"
+	"sync"
+	"time"
 )
 
 // import "bytes"
 // import "encoding/gob"
 
 const (
-	STATE_LEADER = 0
+	STATE_LEADER    = 0
 	STATE_CANDIDATE = 1
-	STATE_FLLOWER = 2
+	STATE_FLLOWER   = 2
 )
-
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -59,34 +59,36 @@ type Raft struct {
 	// state a Raft server must maintain.
 	// 查看论文的图2部分，可知
 
-	termTimer		time.Timer 	// 任期计时器
-	state 			int			// 当前状态
-	voteAcquired 	int 		// 获得的选票
+	termTimer    *time.Timer      // 任期计时器
+	state        int              // 当前状态
+	voteAcquired int              // 获得的选票
+	voteCh       chan interface{} // 投票的通道
+	appendCh     chan interface{} // 领导者通知跟随者或候选人添加日志的通道
 
 	/*
 	 * 全部服务器上面的可持久化状态:
 	 *  currentTerm 	服务器看到的最近Term(第一次启动的时候为0,后面单调递增)
 	 *  votedFor     	当前Term收到的投票候选 (如果没有就为null)
 	 *  log[]        	日志项; 每个日志项包含机器状态和被leader接收的Term(first index is 1)
-	*/
+	 */
 	currentTerm int
-	votedFor	int
+	votedFor    int
 	// log 		bytes[]
 
 	/*
 	 * 全部服务器上面的不稳定状态:
 	 *	commitIndex 	已经被提交的最新的日志索引(第一次为0,后面单调递增)
 	 *	lastApplied     已经应用到服务器状态的最新的日志索引(第一次为0,后面单调递增)
-	*/
+	 */
 	// commitIndex int
-	// lastApplied int	
+	// lastApplied int
 
 	/*
 	 * leader上面使用的不稳定状态（完成选举之后需要重新初始化）
-	 *	nextIndex[]		对于每一个服务器，需要发送给他的下一个日志条目的索引值	
+	 *	nextIndex[]		对于每一个服务器，需要发送给他的下一个日志条目的索引值
 	 *  matchIndex[]	对于每一个服务器，已经复制给他的日志的最高索引值
 	 *
-	*/
+	 */
 	// nextIndex 	int
 	// matchIndex	int
 }
@@ -97,8 +99,10 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here.
-	term = currentTerm
-
+	rf.mu.Lock()
+	term = rf.currentTerm
+	isleader = rf.state == STATE_LEADER
+	rf.mu.Unlock()
 	return term, isleader
 }
 
@@ -130,18 +134,15 @@ func (rf *Raft) readPersist(data []byte) {
 	// d.Decode(&rf.yyy)
 }
 
-
-
-
 //
 // example RequestVote RPC arguments structure.
 //
 type RequestVoteArgs struct {
 	// Your data here.
-	term int 			// 候选人的任期号
-	candidateId	int		// 请求选票的候选人的Id
-	lastLogIndex int	// 候选人的最后日志条目的索引值
-	lastLogTerm int		// 候选人最后日志条目的任期号 	
+	Term         int // 候选人的任期号
+	CandidateId  int // 请求选票的候选人的Id
+	LastLogIndex int // 候选人的最后日志条目的索引值
+	LastLogTerm  int // 候选人最后日志条目的任期号
 }
 
 //
@@ -149,24 +150,23 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here.
-	term int  			// 当前任期号，以便候选人去更新自己的任期号
-	voteGranted bool 	// 候选人赢得了此选票时为真
+	Term        int  // 当前任期号，以便候选人去更新自己的任期号
+	VoteGranted bool // 候选人赢得了此选票时为真
 }
 
-type AppendEntiesArgs struct {
-	term int 			// 候选人的任期号
-	leaderId	int		// 请求选票的候选人的Id
-	preLogIndex int		// 候选人的最后日志条目的索引值
-	preLogTerm 	int		// 候选人最后日志条目的任期号 	
-	entries 	bytes[] // 准备存储的日志条目（表示心跳时为空）
-	leaderCommit 		// 领导人已经提交的日志的索引值
+type AppendEntriesArgs struct {
+	Term         int    // 候选人的任期号
+	LeaderId     int    // 请求选票的候选人的Id
+	PreLogIndex  int    // 候选人的最后日志条目的索引值
+	PreLogTerm   int    // 候选人最后日志条目的任期号
+	Entries      []byte // 准备存储的日志条目（表示心跳时为空）
+	LeaderCommit int    // 领导人已经提交的日志的索引值
 }
 
-type AppendEntiesReply struct {
-	term int  			// 当前任期号，用于领导人去更新自己的任期号
-	success bool 		// 跟随者包含了匹配prevLogIndex和preLogTerm的日志时为真
+type AppendEntriesReply struct {
+	Term    int  // 当前任期号，用于领导人去更新自己的任期号
+	Success bool // 跟随者包含了匹配prevLogIndex和preLogTerm的日志时为真
 }
-
 
 //
 // example RequestVote RPC handler.
@@ -174,46 +174,50 @@ type AppendEntiesReply struct {
 // 收到投票请求时的处理函数
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
-	if args.term < rf.currentTerm {
-		reply.term = rf.currentTerm
-		reply.voteGranted = false
-	} else if args.term > rf.currentTerm {
-		rf.currentTerm = args.term
-		rf.state = STATE_CANDIDATE
-		rf.votedFor = args.candidateId
-		reply.term = rf.currentTerm
-		reply.voteGranted = true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false
+	} else if args.Term > rf.currentTerm {
+		rf.currentTerm = args.Term
+		rf.state = STATE_FLLOWER
+		rf.votedFor = args.CandidateId // 投票
+		reply.VoteGranted = true
 	} else {
 		if rf.votedFor == -1 {
-			rf.votedFor = args.candidateId
-			reply.voteGranted = true
+			rf.votedFor = args.CandidateId
+			reply.VoteGranted = true
 		} else {
-			reply.voteGranted = flase
+			reply.VoteGranted = false
 		}
 	}
 
-	if reply.voteGranted == true {
+	if reply.VoteGranted == true {
 		go func() {
-			rf.vote
-		}
+			rf.voteCh <- struct{}{}
+		}()
 	}
-
 }
 
+func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-func (rf *Raft) AppendEntiesArgs(args *AppendEntiesArgs, reply *AppendEntiesReply) {
-	if args.term < rf.currentTerm {
-		reply.success = false
-		reply.term = rf.currentTerm
-	} else if args.term > rf.currentTerm {
-		rf.currentTerm = args.term
+	if args.Term < rf.currentTerm {
+		reply.Success = false
+		reply.Term = rf.currentTerm
+	} else if args.Term > rf.currentTerm {
+		rf.currentTerm = args.Term
 		rf.state = STATE_FLLOWER
-		reply.success = true
+		reply.Success = true
 	} else {
-		reply.success = true
+		reply.Success = true
 	}
-	
-	
+
+	go func() {
+		rf.appendCh <- struct{}{}
+	}()
 }
 
 //
@@ -238,8 +242,8 @@ func (rf *Raft) sendRequestVote(server int, args RequestVoteArgs, reply *Request
 	return ok
 }
 
-func (rf *Raft) sendAppendEntries(server int, args RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.AppenEntries", args, reply)
+func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
 
@@ -260,7 +264,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
-
 
 	return index, term, isLeader
 }
@@ -297,12 +300,58 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here.
+	rf.state = STATE_FLLOWER // 一开始都是跟随者
+	rf.votedFor = -1
+	rf.currentTerm = 0
+	rf.voteCh = make(chan interface{})
+	rf.appendCh = make(chan interface{})
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
+	// 开始状态机的循环
+	go rf.startLoop()
 
 	return rf
+}
+
+// 根据论文5.1中的图4实现的状态机循环
+func (rf *Raft) startLoop() {
+	rf.termTimer = time.NewTimer(randTermDuration())
+	for {
+		switch rf.state {
+		case STATE_FLLOWER:
+			select {
+			case <-rf.appendCh:
+				rf.termTimer.Reset(randTermDuration())
+			case <-rf.voteCh:
+				rf.termTimer.Reset(randTermDuration())
+			case <-rf.termTimer.C: // 计时器超时，变为候选人
+				rf.mu.Lock()
+				rf.state = STATE_CANDIDATE
+				rf.startElection() // 变为候选人后开始选举
+				rf.mu.Unlock()
+			}
+
+		case STATE_CANDIDATE:
+			select {
+			case <-rf.appendCh: // 已经有了新的领导者，所以变为跟随者
+				rf.state = STATE_FLLOWER
+				rf.votedFor = -1
+			case <-rf.termTimer.C: // 计时器超时，重新计时
+				rf.termTimer.Reset(randTermDuration())
+				rf.startElection()
+			default: // 获得的票数超过半数，变为领导者
+				if rf.voteAcquired > len(rf.peers)/2 {
+					rf.state = STATE_LEADER
+				}
+			}
+
+		case STATE_LEADER:
+			rf.broadcastAppendEntries() // 日志兼心跳
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }
 
 // 论文重点：
@@ -314,16 +363,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 // (c) 一段时间之后没有任何一个获胜的人。
 
 // 获得一个随机的任期时间周期
-func randTermDuration() {
-	r := rand.New(rand.NewSourse(time.Now().UnixNano()))
-	return time.Millisecond * time.Duration(r.Int63n(500) + 400)
+func randTermDuration() time.Duration {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return time.Millisecond * time.Duration(r.Int63n(100)+400)
 }
 
 // 开始选举
 func (rf *Raft) startElection() {
-	rf.currentTerm += 1
-	rf.votedFor = rf.me 	// 自己投给自己一票
-	rf.voteAcquired = 1		// 自己获得一张选票
+	rf.currentTerm++
+	rf.votedFor = rf.me // 自己投给自己一票
+	rf.voteAcquired = 1 // 自己获得一张选票
 	rf.termTimer.Reset(randTermDuration())
 	rf.broadcastRequestVote()
 }
@@ -331,8 +380,8 @@ func (rf *Raft) startElection() {
 // 下面这个函数实现的是候选人并行的向其他服务器节点发送请求投票的RPC（sendRequestVote）
 func (rf *Raft) broadcastRequestVote() {
 	args := RequestVoteArgs{
-		Term: rf.currentTerm,
-		candidateId: rf.me
+		Term:        rf.currentTerm,
+		CandidateId: rf.me,
 	}
 
 	for i, _ := range rf.peers {
@@ -343,14 +392,17 @@ func (rf *Raft) broadcastRequestVote() {
 		go func(server int) {
 			var reply RequestVoteReply
 			// 如果是候选人就发送投票请求
-			if rf.state == STATE_CANDIDATE && rf.sendRequestVote(server, &args, &reply) {
-				
-				if reply.voteGranted == true {
-					rf.voteAcquired += 1
+			if rf.state == STATE_CANDIDATE && rf.sendRequestVote(server, args, &reply) {
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
+
+				if reply.VoteGranted == true {
+					rf.voteAcquired++
 				} else {
-					if reply.term > rf.currentTerm {
+					if reply.Term > rf.currentTerm {
 						rf.currentTerm = reply.Term
 						rf.state = STATE_FLLOWER
+						rf.votedFor = -1
 					}
 				}
 			}
@@ -359,10 +411,10 @@ func (rf *Raft) broadcastRequestVote() {
 }
 
 // 下面这个函数实现的是领导者并行的向其他服务器节点发送请求日志（包括心跳）的RPC（sendAppendEntries）
-func (rf *Raft) broadcastRequestVote() {
-	args := AppendEntiesArgs{
-		Term: rf.currentTerm,
-		leaderId: rf.me
+func (rf *Raft) broadcastAppendEntries() {
+	args := AppendEntriesArgs{
+		Term:     rf.currentTerm,
+		LeaderId: rf.me,
 	}
 
 	for i, _ := range rf.peers {
@@ -371,15 +423,19 @@ func (rf *Raft) broadcastRequestVote() {
 		}
 
 		go func(server int) {
-			var reply AppendEntiesReply
-			// 如果是候选人就发送投票请求
-			if rf.state == STATE_LEADER && rf.sendAppendEntries(server, &args, &reply) {
-				if reply.success == true {
+			var reply AppendEntriesReply
+			// 如果是领导者就发送
+			if rf.state == STATE_LEADER && rf.sendAppendEntries(server, args, &reply) {
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
+
+				if reply.Success == true {
 
 				} else {
-					if reply.term > rf.currentTerm {
+					if reply.Term > rf.currentTerm {
 						rf.currentTerm = reply.Term
 						rf.state = STATE_FLLOWER
+						rf.votedFor = -1
 					}
 				}
 			}
